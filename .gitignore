@@ -1,0 +1,5 @@
+*/__pycache__/
+db_persist_data/
+.env
+certificates/
+webroot/
