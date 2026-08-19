@@ -3,14 +3,13 @@ import uuid
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
+from agent import StreamingAgent
+from config import settings
+from conversation_manager import ConversationManager
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
-
-from agent import StreamingAgent
-from config import settings
-from conversation_manager import ConversationManager
 from schema import (
     ConversationDetailResponse,
     ConversationListResponse,
@@ -148,36 +147,43 @@ async def stream_conversation(req: QueryRequest):
         # Get conversation history, which now ends with the query above
         messages = await conversation_manager.get_message_history(req.email, conversation_id, True)
 
+        def part(payload: dict) -> str:
+            """Frame one part of the AI SDK data stream as a server-sent event."""
+            return "data: " + json.dumps(payload) + "\n\n"
+
         async def event_generator() -> AsyncGenerator[str, None]:
-            """Generate events for the streaming response."""
+            """Emit the answer as an AI SDK data stream (x-vercel-ai-ui-message-stream v1)."""
             message_id = str(uuid.uuid4())
             text_id = f"text_{uuid.uuid4().hex[:16]}"
             chunks = []
+            text_open = False
+            error_text = None
 
-            yield "data: " + json.dumps({"type": "start", "messageId": message_id}) + "\n\n"
-            yield "data: " + json.dumps(
+            yield part({"type": "start", "messageId": message_id})
+            yield part({"type": "start-step"})
+            yield part(
                 {
                     "type": "data-conversation",
                     "data": {"conversationId": conversation_id},
                 }
-            ) + "\n\n"
+            )
 
             try:
-                yield "data: " + json.dumps(
+                yield part(
                     {
                         "type": "data-agent",
                         "data": {"agent": agent.name, "textId": text_id},
                     }
-                ) + "\n\n"
-                yield "data: " + json.dumps({"type": "text-start", "id": text_id}) + "\n\n"
+                )
+                yield part({"type": "text-start", "id": text_id})
+                text_open = True
 
                 async for delta in agent.run_stream(history=messages):
                     chunks.append(delta)
-                    yield "data: " + json.dumps(
-                        {"type": "text-delta", "id": text_id, "delta": delta}
-                    ) + "\n\n"
+                    yield part({"type": "text-delta", "id": text_id, "delta": delta})
 
-                yield "data: " + json.dumps({"type": "text-end", "id": text_id}) + "\n\n"
+                yield part({"type": "text-end", "id": text_id})
+                text_open = False
 
                 # Save the answer so it comes back as history on the next turn
                 answer = "".join(chunks)
@@ -190,12 +196,23 @@ async def stream_conversation(req: QueryRequest):
                         message_type="TextMessage",
                     )
 
-                yield "data: " + json.dumps({"type": "finish"}) + "\n\n"
-                yield "data: [DONE]\n\n"
+                yield part({"type": "finish-step"})
+                yield part({"type": "finish"})
             except Exception as e:
+                # Not a bare finally: a client disconnect raises GeneratorExit here,
+                # and yielding while closing would break the generator
                 logger.exception(e)
                 logger.error(f"Error during streaming: {str(e)}")
-                yield "data: " + json.dumps({"type": "error", "errorText": str(e)}) + "\n\n"
+                error_text = str(e)
+
+            if error_text is not None:
+                # A text part left open has to be closed before the error part
+                if text_open:
+                    yield part({"type": "text-end", "id": text_id})
+                yield part({"type": "error", "errorText": error_text})
+
+            # The protocol terminates with [DONE], on the error path too
+            yield "data: [DONE]\n\n"
 
         headers = {
             "Cache-Control": "no-cache",

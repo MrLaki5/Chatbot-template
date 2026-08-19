@@ -2,7 +2,7 @@
 Template repository for chatbot applications
 
 ## Features
-- **Streaming Responses**: Tokens are streamed to the browser as server-sent events, so answers appear as they are generated
+- **Streaming Responses**: Tokens are streamed to the browser as server-sent events, following the [AI SDK Data Stream Protocol](https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol#data-stream-protocol), so any Vercel AI SDK client can consume it as-is
 - **Any OpenAI-Compatible Model**: Point `MODEL_BASE_URL` at OpenAI, Azure, vLLM, Ollama, LiteLLM or anything else speaking the same API
 - **Configurable Agent**: A single agent driven by the `SYSTEM_PROMPT` setting, no framework in between
 - **Conversation History**: Chats are stored per user in Redis with a 24h TTL, so a conversation can be resumed or deleted
@@ -45,6 +45,31 @@ flowchart LR
 | `GET /conversations/{email}/{conversation_id}` | Loads one conversation with its messages |
 | `DELETE /conversations/{email}/{conversation_id}` | Deletes a conversation |
 
+### Streaming Protocol
+
+`POST /conversations/query` implements the
+[AI SDK Data Stream Protocol](https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol#data-stream-protocol)
+(`x-vercel-ai-ui-message-stream: v1`), so the bundled UI can be swapped for a Vercel AI SDK
+frontend such as `useChat` without touching the backend. One turn looks like this:
+
+```text
+data: {"type":"start","messageId":"..."}
+data: {"type":"start-step"}
+data: {"type":"data-conversation","data":{"conversationId":"..."}}
+data: {"type":"data-agent","data":{"agent":"Assistant","textId":"text_..."}}
+data: {"type":"text-start","id":"text_..."}
+data: {"type":"text-delta","id":"text_...","delta":"Hello"}
+data: {"type":"text-end","id":"text_..."}
+data: {"type":"finish-step"}
+data: {"type":"finish"}
+data: [DONE]
+```
+
+`data-conversation` and `data-agent` are custom `data-*` parts of the protocol: the first hands
+back the conversation id to send with the next request, the second names the agent that is
+answering. If the model fails part way through, the open text part is closed and an
+`{"type":"error","errorText":"..."}` part is sent, and the stream still terminates with `[DONE]`.
+
 ## Quick Start
 
 ### 1. Clone and Setup
@@ -70,3 +95,7 @@ MODEL_API_KEY=your_OPENAI_API_KEY_here
 ```bash
 docker compose up -d --build
 ```
+
+## References
+- [AI SDK Data Stream Protocol](https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol#data-stream-protocol) - the wire format `/conversations/query` follows
+- [OpenAI Chat Completions API](https://platform.openai.com/docs/api-reference/chat) - the model API the agent speaks
