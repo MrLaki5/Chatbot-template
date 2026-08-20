@@ -5,6 +5,7 @@ Template repository for chatbot applications
 - **Streaming Responses**: Tokens are streamed to the browser as server-sent events, following the [AI SDK Data Stream Protocol](https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol#data-stream-protocol), so any Vercel AI SDK client can consume it as-is
 - **Any OpenAI-Compatible Model**: Point `MODEL_BASE_URL` at OpenAI, Azure, vLLM, Ollama, LiteLLM or anything else speaking the same API
 - **Configurable Agent**: A single agent driven by the `SYSTEM_PROMPT` setting, no framework in between
+- **Email Sessions**: The UI asks for an email on first visit and keeps it in a signed, `HttpOnly` session cookie; every endpoint reads the caller's address from the session rather than the URL or request body
 - **Conversation History**: Chats are stored per user in Redis with a 24h TTL, so a conversation can be resumed or deleted
 - **Built-in Chat UI**: Dark web interface served by the app itself, with markdown rendering, code highlighting and a conversation sidebar
 - **RESTful API**: Clean FastAPI endpoints for integration
@@ -23,7 +24,7 @@ flowchart LR
 
     subgraph stack["docker compose"]
         nginx["<b>nginx</b><br/>80 redirect · 443 TLS<br/>proxy_buffering off"]
-        app["<b>app</b><br/>FastAPI + uvicorn :8013<br/>StreamingAgent"]
+        app["<b>app</b><br/>FastAPI + uvicorn :8013<br/>StreamingAgent<br/>signed session cookie"]
         redis[("<b>redis</b><br/>conversations<br/>24h TTL")]
         db[("<b>postgres</b><br/>started, not<br/>wired up yet")]
     end
@@ -40,10 +41,15 @@ flowchart LR
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /` | Serves the chat UI |
+| `POST /session` | Starts a session from an email and sets the session cookie |
+| `GET /session` | Returns the session's email, `401` if there is none |
+| `DELETE /session` | Clears the session |
 | `POST /conversations/query` | Sends a message, streams the answer back as SSE |
-| `GET /conversations/{email}` | Lists that user's conversations |
-| `GET /conversations/{email}/{conversation_id}` | Loads one conversation with its messages |
-| `DELETE /conversations/{email}/{conversation_id}` | Deletes a conversation |
+| `GET /conversations` | Lists the session user's conversations |
+| `GET /conversations/{conversation_id}` | Loads one conversation with its messages |
+| `DELETE /conversations/{conversation_id}` | Deletes a conversation |
+
+Everything under `/conversations` requires a session and answers `401` without one.
 
 ### Streaming Protocol
 

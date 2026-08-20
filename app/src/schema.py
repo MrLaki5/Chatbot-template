@@ -1,16 +1,37 @@
+import re
 from typing import Any, Dict, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+EMAIL_PATTERN = re.compile(r"^[^\s@:]+@[^\s@:]+$")
 
 
 class QueryRequest(BaseModel):
     """Request model for a user query."""
 
     query: str
-    email: str
-    note_id: Optional[str] = None
     conversation_id: Optional[str] = None
     command: Optional[str] = None
+
+
+class SessionRequest(BaseModel):
+    """Request model for creating a session."""
+
+    email: str
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        value = value.strip().lower()
+        if not EMAIL_PATTERN.match(value):
+            raise ValueError("Invalid email address")
+        return value
+
+
+class SessionResponse(BaseModel):
+    """Response model for the current session."""
+
+    email: str
 
 
 class StreamEventResponse(BaseModel):

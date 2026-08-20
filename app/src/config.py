@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     REDIS_DB: int = 0
     REDIS_PASSWORD: str = ""
 
+    # Signs the session cookie. Override in any real deployment.
+    SESSION_SECRET_KEY: str = "chatbot-template-dev-secret-change-me"
+    SESSION_TTL_HOURS: int = 24
+
     class Config:
         env_file = ".env"
 

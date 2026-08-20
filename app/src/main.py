@@ -6,7 +6,7 @@ from typing import AsyncGenerator
 from agent import StreamingAgent
 from config import settings
 from conversation_manager import ConversationManager
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
@@ -15,8 +15,11 @@ from schema import (
     ConversationListResponse,
     ConversationMetadata,
     QueryRequest,
+    SessionRequest,
+    SessionResponse,
     StreamEventResponse,
 )
+from starlette.middleware.sessions import SessionMiddleware
 
 
 @asynccontextmanager
@@ -39,9 +42,24 @@ agent = StreamingAgent(
     base_url=settings.MODEL_BASE_URL,
     api_key=settings.MODEL_API_KEY,
 )
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.SESSION_SECRET_KEY,
+    max_age=settings.SESSION_TTL_HOURS * 3600,
+    https_only=True,
+    same_site="lax",
+)
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+async def require_email(request: Request) -> str:
+    """Resolve the caller's email from the session, or reject the request."""
+    email = request.session.get("email")
+    if not email:
+        raise HTTPException(status_code=401, detail="No active session")
+    return email
 
 
 @app.get("/")
@@ -50,12 +68,33 @@ async def serve_chat_ui():
     return FileResponse("static/index.html")
 
 
+@app.post("/session", response_model=SessionResponse, summary="Start a session")
+async def create_session(request: Request, req: SessionRequest):
+    """Store the email in the session and hand back the session cookie."""
+    request.session["email"] = req.email
+    logger.info(f"Session started for {req.email}")
+    return SessionResponse(email=req.email)
+
+
+@app.get("/session", response_model=SessionResponse, summary="Get the current session")
+async def read_session(email: str = Depends(require_email)):
+    """Return the email of the active session."""
+    return SessionResponse(email=email)
+
+
+@app.delete("/session", summary="Clear the session")
+async def delete_session(request: Request):
+    """Drop the session. Conversations are kept and come back if the same email signs in."""
+    request.session.clear()
+    return {"success": True, "message": "Session cleared"}
+
+
 @app.get(
-    "/conversations/{email}",
+    "/conversations",
     response_model=ConversationListResponse,
     summary="List all conversations",
 )
-async def get_conversations(email: str):
+async def get_conversations(email: str = Depends(require_email)):
     """Get list of all conversations with metadata."""
     try:
         conversations_data = await conversation_manager.get_all_conversations(email)
@@ -68,11 +107,11 @@ async def get_conversations(email: str):
 
 
 @app.get(
-    "/conversations/{email}/{conversation_id}",
+    "/conversations/{conversation_id}",
     response_model=ConversationDetailResponse,
     summary="Get conversation details",
 )
-async def get_conversation(email: str, conversation_id: str):
+async def get_conversation(conversation_id: str, email: str = Depends(require_email)):
     """Get details of a specific conversation including all messages."""
     try:
         # Get metadata
@@ -97,8 +136,8 @@ async def get_conversation(email: str, conversation_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to get conversation: {str(e)}")
 
 
-@app.delete("/conversations/{email}/{conversation_id}", summary="Reset/Delete a conversation")
-async def delete_conversation(email: str, conversation_id: str):
+@app.delete("/conversations/{conversation_id}", summary="Reset/Delete a conversation")
+async def delete_conversation(conversation_id: str, email: str = Depends(require_email)):
     """Delete/reset a specific conversation."""
     try:
         success = await conversation_manager.delete_conversation(email, conversation_id)
@@ -129,7 +168,7 @@ async def delete_conversation(email: str, conversation_id: str):
         "sent back in the request after the first user query."
     ),
 )
-async def stream_conversation(req: QueryRequest):
+async def stream_conversation(req: QueryRequest, email: str = Depends(require_email)):
     """Stream a conversation with a user."""
     try:
         # If conversation_id is not provided, generate a new one
@@ -137,7 +176,7 @@ async def stream_conversation(req: QueryRequest):
 
         # Save user message to history
         await conversation_manager.save_msg(
-            email=req.email,
+            email=email,
             conversation_id=conversation_id,
             source="user",
             content=req.query,
@@ -145,7 +184,7 @@ async def stream_conversation(req: QueryRequest):
         )
 
         # Get conversation history, which now ends with the query above
-        messages = await conversation_manager.get_message_history(req.email, conversation_id, True)
+        messages = await conversation_manager.get_message_history(email, conversation_id, True)
 
         def part(payload: dict) -> str:
             """Frame one part of the AI SDK data stream as a server-sent event."""
@@ -189,7 +228,7 @@ async def stream_conversation(req: QueryRequest):
                 answer = "".join(chunks)
                 if answer:
                     await conversation_manager.save_msg(
-                        email=req.email,
+                        email=email,
                         conversation_id=conversation_id,
                         source=agent.name,
                         content=answer,
@@ -217,7 +256,6 @@ async def stream_conversation(req: QueryRequest):
         headers = {
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "Access-Control-Allow-Origin": "*",
             "x-vercel-ai-ui-message-stream": "v1",
         }
         return StreamingResponse(

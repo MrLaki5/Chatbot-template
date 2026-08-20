@@ -145,8 +145,10 @@
       transition: border-color .2s ease, color .2s ease;
     }
 
-    .email-box:hover { border-color: var(--primary); color: var(--text); }
+    /* Clicking the pill ends the session, so it warns on hover rather than inviting a click */
+    .email-box:hover { border-color: var(--danger); color: var(--danger); }
     .email-box svg { flex-shrink: 0; opacity: .7; }
+    .email-box:hover svg { opacity: 1; }
 
     #emailLabel {
       overflow: hidden;
@@ -154,14 +156,71 @@
       white-space: nowrap;
     }
 
-    .email-input {
-      width: 190px;
-      padding: 0;
-      border: none;
-      outline: none;
-      background: transparent;
+    /* --------------------
+       Session modal
+    -------------------- */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(2, 8, 6, 0.72);
+      backdrop-filter: blur(var(--blur));
+    }
+
+    .modal {
+      width: 100%;
+      max-width: 420px;
+      padding: 26px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xl);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      animation: fadeIn .2s ease;
+    }
+
+    .modal h2 {
+      margin: 0 0 6px;
+      font-size: 19px;
+      font-weight: 600;
+    }
+
+    .modal p {
+      margin: 0 0 18px;
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--text-dim);
+    }
+
+    .modal-input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--bg-elev);
       color: var(--text);
       font: inherit;
+      font-size: 14px;
+      outline: none;
+      transition: border-color .2s ease;
+    }
+
+    .modal-input:focus { border-color: var(--primary); }
+
+    .modal-error {
+      margin-top: 10px;
+      color: var(--danger);
+      font-size: 13px;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 18px;
     }
 
     .btn {
@@ -451,11 +510,10 @@
         <div class="title">Chatbot Template</div>
       </div>
       <div class="header-actions">
-        <div id="emailBox" class="email-box">
-          <!-- envelope icon -->
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
+        <div id="emailBox" class="email-box hidden" title="Clear session">
+          <!-- logout icon -->
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
           <span id="emailLabel"></span>
-          <input id="emailInput" class="email-input" type="email" spellcheck="false" autocomplete="off" hidden />
         </div>
         <button id="newChatBtn" class="btn btn-ghost" title="Start a new chat">
           <!-- plus icon -->
@@ -495,11 +553,26 @@
     </div>
   </div>
 
+  <!-- Session gate: shown whenever there is no session, and not dismissible without one -->
+  <div id="emailModal" class="modal-backdrop hidden">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="emailModalTitle">
+      <h2 id="emailModalTitle">Welcome</h2>
+      <p>Enter your email to start a session. Your conversations are kept under this address.</p>
+      <input id="modalEmailInput" class="modal-input" type="email" placeholder="you@example.com"
+             spellcheck="false" autocomplete="email" />
+      <div id="modalEmailError" class="modal-error hidden"></div>
+      <div class="modal-actions">
+        <button id="modalSubmitBtn" class="btn btn-primary">Continue</button>
+      </div>
+    </div>
+  </div>
+
   <script>
-    const EMAIL_KEY = 'ui-email';
-    const DEFAULT_EMAIL = 'test@email.com';
-    let EMAIL = DEFAULT_EMAIL;
-    try { EMAIL = localStorage.getItem(EMAIL_KEY) || DEFAULT_EMAIL; } catch {}
+    // The session cookie is the source of truth; this is only what the server told us it holds.
+    let EMAIL = null;
+
+    // Kept in step with EMAIL_PATTERN in schema.py
+    const EMAIL_PATTERN = /^[^\s@:]+@[^\s@:]+$/;
 
     // ---------- Markdown config ----------
     marked.setOptions({ breaks: true, gfm: true, headerIds: false, mangle: false });
@@ -511,8 +584,11 @@
     const newChatBtn = document.getElementById('newChatBtn');
     const emailBox = document.getElementById('emailBox');
     const emailLabel = document.getElementById('emailLabel');
-    const emailInput = document.getElementById('emailInput');
     const conversationsList = document.getElementById('conversationsList');
+    const emailModal = document.getElementById('emailModal');
+    const modalEmailInput = document.getElementById('modalEmailInput');
+    const modalEmailError = document.getElementById('modalEmailError');
+    const modalSubmitBtn = document.getElementById('modalSubmitBtn');
 
     // ---------- State ----------
     let conversationId = null;
@@ -520,39 +596,87 @@
     let currentStreamingContent = '';
     let isStreaming = false;
 
-    // ---------- Identity ----------
+    // ---------- Session ----------
     function renderEmail() {
-      emailLabel.textContent = EMAIL;
-      emailBox.title = `Chatting as ${EMAIL} - click to change`;
+      emailLabel.textContent = EMAIL || '';
+      emailBox.title = `Signed in as ${EMAIL} - click to clear the session`;
+      emailBox.classList.toggle('hidden', !EMAIL);
     }
 
-    function startEditingEmail() {
-      emailInput.value = EMAIL;
-      emailLabel.hidden = true;
-      emailInput.hidden = false;
-      emailInput.focus();
-      emailInput.select();
+    function showEmailModal() {
+      modalEmailInput.value = '';
+      hideModalError();
+      emailModal.classList.remove('hidden');
+      setInputEnabled(false);
+      modalEmailInput.focus();
     }
 
-    function stopEditingEmail() {
-      emailInput.hidden = true;
-      emailLabel.hidden = false;
+    function hideEmailModal() {
+      emailModal.classList.add('hidden');
+      setInputEnabled(true);
     }
 
-    async function commitEmail() {
-      const next = emailInput.value.trim();
-      stopEditingEmail();
+    function showModalError(message) {
+      modalEmailError.textContent = message;
+      modalEmailError.classList.remove('hidden');
+    }
 
-      // Ignore an unchanged, empty or clearly malformed address
-      if (!next || next === EMAIL || !/^[^\s@]+@[^\s@]+$/.test(next)) return;
+    function hideModalError() {
+      modalEmailError.classList.add('hidden');
+    }
 
-      EMAIL = next;
-      try { localStorage.setItem(EMAIL_KEY, EMAIL); } catch {}
-      renderEmail();
+    async function submitEmail() {
+      const email = modalEmailInput.value.trim();
+      if (!EMAIL_PATTERN.test(email)) {
+        showModalError('Enter a valid email address');
+        modalEmailInput.focus();
+        return;
+      }
+      hideModalError();
 
-      // Conversations are stored per email, so start clean under the new one
+      try {
+        const response = await fetch('/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
+        });
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const data = await response.json();
+
+        EMAIL = data.email;
+        hideEmailModal();
+        renderEmail();
+        clearChat();
+        await refreshConversations();
+      } catch (e) {
+        console.error('Error starting session:', e);
+        showModalError('Could not start a session, please try again');
+      }
+    }
+
+    async function clearSession() {
+      try {
+        await fetch('/session', { method: 'DELETE' });
+      } catch (e) {
+        console.error('Error clearing session:', e);
+      }
+      resetToSignedOut();
+    }
+
+    /** Drop every trace of the previous user and put the gate back up. */
+    function resetToSignedOut() {
+      EMAIL = null;
       clearChat();
-      await refreshConversations();
+      conversationsList.innerHTML = '<div class="no-conversations">No conversations yet</div>';
+      renderEmail();
+      // Last, because clearChat() re-enables the composer
+      showEmailModal();
+    }
+
+    /** Called whenever the server says the session is gone, e.g. after the cookie expires. */
+    function handleUnauthorized() {
+      if (!emailModal.classList.contains('hidden')) return;
+      resetToSignedOut();
     }
 
     // ---------- Helpers ----------
@@ -762,7 +886,6 @@
       try {
         const requestBody = {
           query: message,
-          email: EMAIL,
           conversation_id: conversationId
         };
 
@@ -771,6 +894,9 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(requestBody)
         });
+
+        // The session can lapse while the tab sits idle; re-prompt instead of failing silently
+        if (response.status === 401) { handleUnauthorized(); return; }
 
         await handleStreamResponse(response);
 
@@ -786,10 +912,11 @@
     // ---------- Conversation Management ----------
     async function fetchConversations() {
       try {
-        const response = await fetch(`/conversations/${encodeURIComponent(EMAIL)}`, {
+        const response = await fetch('/conversations', {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' }
         });
+        if (response.status === 401) { handleUnauthorized(); return null; }
         if (!response.ok) throw new Error('Failed to fetch conversations');
         return await response.json();
       } catch (e) {
@@ -800,10 +927,11 @@
 
     async function loadConversation(conversationIdToLoad) {
       try {
-        const response = await fetch(`/conversations/${encodeURIComponent(EMAIL)}/${conversationIdToLoad}`, {
+        const response = await fetch(`/conversations/${conversationIdToLoad}`, {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' }
         });
+        if (response.status === 401) { handleUnauthorized(); return; }
         if (!response.ok) throw new Error('Failed to load conversation');
         const data = await response.json();
 
@@ -827,10 +955,11 @@
 
     async function deleteConversation(conversationIdToDelete) {
       try {
-        const response = await fetch(`/conversations/${encodeURIComponent(EMAIL)}/${conversationIdToDelete}`, {
+        const response = await fetch(`/conversations/${conversationIdToDelete}`, {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' }
         });
+        if (response.status === 401) { handleUnauthorized(); return; }
         if (!response.ok) throw new Error('Failed to delete conversation');
 
         // If this was the current conversation, clear it
@@ -938,20 +1067,35 @@
 
     // ---------- Init ----------
     async function initializeApp() {
-      renderEmail();
       autoResizeTextarea(messageInput);
 
-      // Load conversations
+      // The session cookie decides whether we chat or ask who is chatting
+      let session = null;
+      try {
+        const response = await fetch('/session');
+        if (response.ok) session = await response.json();
+      } catch (e) {
+        console.error('Error reading session:', e);
+      }
+
+      if (!session) {
+        renderEmail();
+        showEmailModal();
+        return;
+      }
+
+      EMAIL = session.email;
+      renderEmail();
       await refreshConversations();
     }
 
     // ---------- Events ----------
-    emailBox.addEventListener('click', () => { if (emailInput.hidden) startEditingEmail(); });
-    emailInput.addEventListener('blur', commitEmail);
-    emailInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); commitEmail(); }
-      // Escape restores the current value first so the blur below is a no-op
-      if (e.key === 'Escape') { emailInput.value = EMAIL; stopEditingEmail(); }
+    emailBox.addEventListener('click', clearSession);
+
+    modalSubmitBtn.addEventListener('click', submitEmail);
+    modalEmailInput.addEventListener('input', hideModalError);
+    modalEmailInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); submitEmail(); }
     });
 
     sendButton.addEventListener('click', sendMessage);
