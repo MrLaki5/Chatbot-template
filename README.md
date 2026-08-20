@@ -89,21 +89,31 @@ pip install pre-commit
 pre-commit install
 ```
 
-### 2. Environment Configuration
+### 3. Environment Configuration
 Create a `.env` file with your API keys:
 ```env
 MODEL_API_KEY=your_OPENAI_API_KEY_here
 ```
 
-### 3. Start Services
+### 4. Start Services
 ```bash
 docker compose up -d --build
 ```
 Website accessible at [https://localhost](https://localhost)
 
-### 4. (Optional) Drop the database
-```
+### 5. (Optional) Reset the database
+Drops both tables and creates them again, empty. Every stored conversation is lost.
+```bash
 docker exec cb_template_app python scripts/init_db.py
+```
+
+### 6. (In deployment) Set SSL certificate
+* When domain has been acquired, replace the `example.com` domain inside the following files with the acquired domain:
+    * [Lets Encrypt certificate generation](nginx/letsencrypt_cert_gen.sh)
+    * [Nginx configuration](nginx/nginx_letsencrypt.conf)
+* When instance has been deployed, run the following
+```bash
+docker exec cb_template_nginx /bin/bash -c "./lets_enc.sh"
 ```
 
 ## References

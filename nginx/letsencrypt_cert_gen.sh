@@ -4,7 +4,7 @@ pidof nginx > /run/nginx.pid
 # Create root dir for acme challange
 mkdir -p /var/www/certbot/.well-known/acme-challenge/
 # Generate certificates
-certbot certonly --webroot -w /var/www/certbot/ -d code-review.darwindigital.com -m info@darwindigital.com --agree-tos -n
+certbot certonly --webroot -w /var/www/certbot/ -d example.com -m info@example.com --agree-tos -n
 # Change configuration on nginx
 cat /nginx_letsencrypt.conf > /nginx_no_letsencrypt.conf
 # Restart nginx
