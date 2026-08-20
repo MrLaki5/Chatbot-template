@@ -1,34 +1,46 @@
+"""Async engine and session factory for the conversation store."""
+
 from config import settings
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from .models import Base
 
-# Database URL - you can modify this based on your database setup
-# For SQLite (development):
-# DATABASE_URL = "sqlite:///./eyestock.db"
-DATABASE_URL = settings.DATABASE_URL
-
-# Create engine
-engine = create_engine(DATABASE_URL)
-
-# Create sessionmaker
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+_engine: AsyncEngine | None = None
+_session_factory: async_sessionmaker | None = None
 
 
-# Create tables
-def create_tables():
-    # Drop all existing tables
-    Base.metadata.drop_all(bind=engine)
-    # Create all tables with new schema
-    Base.metadata.create_all(bind=engine)
+def get_engine() -> AsyncEngine:
+    """Return the process-wide engine, creating it on first use."""
+    global _engine, _session_factory
+
+    if _engine is None:
+        _engine = create_async_engine(settings.DATABASE_URL, pool_pre_ping=True)
+        _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
+
+    return _engine
 
 
-# Dependency to get database session
-def get_db():
-    """Get database session"""
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+def get_session_factory() -> async_sessionmaker:
+    """Return the session factory bound to the engine."""
+    get_engine()
+    return _session_factory
+
+
+async def init_models() -> None:
+    """Create any missing tables.
+
+    A no-op once the tables exist, which is what makes it safe on every startup.
+    Nothing here ever drops anything.
+    """
+    async with get_engine().begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+
+async def dispose_engine() -> None:
+    """Close the connection pool."""
+    global _engine, _session_factory
+
+    if _engine is not None:
+        await _engine.dispose()
+        _engine = None
+        _session_factory = None

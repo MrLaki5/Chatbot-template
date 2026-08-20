@@ -1,29 +1,62 @@
-from sqlalchemy import JSON, Column, Integer, String
-from sqlalchemy.ext.declarative import declarative_base
+"""Conversation tables.
 
-Base = declarative_base()
+One `conversations` row per chat, one `messages` row per turn. The conversation id is
+supplied by the client, so it is only unique *within* an email: the primary key is the
+pair, which keeps one user's conversations out of another's.
+"""
 
+from datetime import datetime
 
-class Videos(Base):
-    __tablename__ = "videos"
-
-    id = Column(Integer, primary_key=True, index=True)
-    video_id = Column(String, unique=True, nullable=False)
-    summary = Column(String, nullable=False)
-    highlight_questions = Column(JSON, nullable=False)
-
-    def __repr__(self):
-        return (
-            f"<Videos(id={self.id}, video_id={self.video_id},"
-            f" summary='{self.summary}', highlight_questions={self.highlight_questions})>"
-        )
+from sqlalchemy import BigInteger, DateTime, ForeignKeyConstraint, Index, Integer, String, Text
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
-class Permanent(Base):
-    __tablename__ = "permanent"
+class Base(DeclarativeBase):
+    pass
 
-    id = Column(Integer, primary_key=True, index=True)
-    bearer_token = Column(String, nullable=False)
 
-    def __repr__(self):
-        return f"<Permanent(id={self.id}, bearer_token='{self.bearer_token}')>"
+class Conversation(Base):
+    __tablename__ = "conversations"
+
+    email: Mapped[str] = mapped_column(String(320), primary_key=True)
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+
+    # Derived from the first message and then left alone
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    first_message: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Kept in step with the messages table by the upsert in ConversationManager.save_msg
+    message_count: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        # Serves the conversation list: one user's chats ordered by recency.
+        # No DESC needed, Postgres scans a btree backwards just as cheaply.
+        Index("ix_conversations_email_updated_at", "email", "updated_at"),
+    )
+
+
+class Message(Base):
+    __tablename__ = "messages"
+
+    # A bigserial, so ordering by it is insertion order within a conversation
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    conversation_id: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    message_type: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["email", "conversation_id"],
+            ["conversations.email", "conversations.id"],
+            ondelete="CASCADE",
+        ),
+        Index("ix_messages_conversation", "email", "conversation_id", "id"),
+    )

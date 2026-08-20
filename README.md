@@ -6,7 +6,7 @@ Template repository for chatbot applications
 - **Any OpenAI-Compatible Model**: Point `MODEL_BASE_URL` at OpenAI, Azure, vLLM, Ollama, LiteLLM or anything else speaking the same API
 - **Configurable Agent**: A single agent driven by the `SYSTEM_PROMPT` setting, no framework in between
 - **Email Sessions**: The UI asks for an email on first visit and keeps it in a signed, `HttpOnly` session cookie; every endpoint reads the caller's address from the session rather than the URL or request body
-- **Conversation History**: Chats are stored per user in Redis with a 24h TTL, so a conversation can be resumed or deleted
+- **Conversation History**: Chats are stored per user in Postgres and kept until deleted, so a conversation can be resumed after a restart
 - **Built-in Chat UI**: Dark web interface served by the app itself, with markdown rendering, code highlighting and a conversation sidebar
 - **RESTful API**: Clean FastAPI endpoints for integration
 - **HTTPS Out of the Box**: nginx reverse proxy that self-signs a certificate on first start, with a Let's Encrypt flow for production
@@ -25,8 +25,7 @@ flowchart LR
     subgraph stack["docker compose"]
         nginx["<b>nginx</b><br/>80 redirect · 443 TLS<br/>proxy_buffering off"]
         app["<b>app</b><br/>FastAPI + uvicorn :8013<br/>StreamingAgent<br/>signed session cookie"]
-        redis[("<b>redis</b><br/>conversations<br/>24h TTL")]
-        db[("<b>postgres</b><br/>started, not<br/>wired up yet")]
+        db[("<b>postgres</b><br/>conversations · messages<br/>kept until deleted")]
     end
 
     model["<b>OpenAI-compatible endpoint</b><br/>MODEL_BASE_URL<br/>OpenAI · Azure · vLLM · Ollama"]
@@ -34,8 +33,7 @@ flowchart LR
     browser <==>|"HTTPS · SSE token stream"| nginx
     nginx <==>|"proxied to :8013"| app
     app <==>|"chat.completions, stream=true"| model
-    app <-->|"read history, save reply"| redis
-    app -.- db
+    app <-->|"read history, save reply"| db
 ```
 
 | Endpoint | Purpose |
@@ -100,6 +98,12 @@ MODEL_API_KEY=your_OPENAI_API_KEY_here
 ### 3. Start Services
 ```bash
 docker compose up -d --build
+```
+Website accessible at [https://localhost](https://localhost)
+
+### 4. (Optional) Drop the database
+```
+docker exec cb_template_app python scripts/init_db.py
 ```
 
 ## References

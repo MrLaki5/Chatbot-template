@@ -1,11 +1,4 @@
 services:
-  redis:
-    image: redis:7.0
-    container_name: cb_template_redis
-    restart: always
-    expose:
-      - 6379
-
   db:
     container_name: cb_template_db
     build: ./db
@@ -17,6 +10,11 @@ services:
      - PGDATA=/var/lib/postgresql/data
     volumes:
        - ./db_persist_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d chatbot_template"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   app:
     container_name: cb_template_app
@@ -25,8 +23,8 @@ services:
     expose:
       - 8013
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
     environment:
       - MODEL_API_KEY=${MODEL_API_KEY:?not set - copy .example.env to .env and fill it in}
 

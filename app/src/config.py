@@ -7,9 +7,7 @@ class Settings(BaseSettings):
     MODEL_API_KEY: str
     SYSTEM_PROMPT: str = "You are a helpful assistant."
 
-    REDIS_URL: str = "redis:6379"
-    REDIS_DB: int = 0
-    REDIS_PASSWORD: str = ""
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@db:5432/chatbot_template"
 
     # Signs the session cookie. Override in any real deployment.
     SESSION_SECRET_KEY: str = "chatbot-template-dev-secret-change-me"

@@ -1,49 +1,38 @@
 #!/usr/bin/env python3
-"""
-Database initialization utility script for video intelligence
+"""Rebuild the database from scratch.
 
-This script creates database tables and generates a bearer token.
-Just run: python init_db.py
+Drops every table and creates them again, empty. Run it with:
+
+    docker compose exec app python scripts/init_db.py
 """
 
+import asyncio
 import os
 import sys
 
 # Add the parent directory (src) to the Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from orm.crud import regenerate_bearer
-from orm.database import create_tables, get_db
+from orm.database import dispose_engine, get_engine
+from orm.models import Base
 
 
-def main():
-    """Initialize database - create tables and generate bearer token"""
-    print("Video Intelligence Database Initialization")
-    print("===================================")
-    print()
-    print("Creating database tables and generating bearer token...")
+async def rebuild():
+    """Drop every table and create them again, empty."""
+    print("Rebuilding the database...")
 
     try:
-        # Create database tables
-        create_tables()
-        print("✓ Database tables created successfully!")
+        async with get_engine().begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+            await conn.run_sync(Base.metadata.create_all)
 
-        # Generate bearer token
-        db = next(get_db())
-        try:
-            bearer_record = regenerate_bearer(db)
-            bearer_token = bearer_record.bearer_token
-            print("✓ Bearer token generated successfully!")
-            print(f"Bearer Token: {bearer_token}")
-            print("✓ Database initialization completed successfully!")
-            return bearer_token
-        finally:
-            db.close()
-
+        print("✓ All tables dropped and recreated. The database is empty.")
     except Exception as e:
-        print(f"✗ Database initialization failed: {e}")
-        return None
+        print(f"✗ Database rebuild failed: {e}")
+        raise
+    finally:
+        await dispose_engine()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(rebuild())

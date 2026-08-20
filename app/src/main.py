@@ -5,11 +5,11 @@ from typing import AsyncGenerator
 
 from agent import StreamingAgent
 from config import settings
-from conversation_manager import ConversationManager
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
+from orm.conversation_manager import ConversationManager
 from schema import (
     ConversationDetailResponse,
     ConversationListResponse,
@@ -26,12 +26,14 @@ from starlette.middleware.sessions import SessionMiddleware
 async def lifespan(_app):
     # Startup
     logger.info("Starting service...")
+    await conversation_manager.initialize()
 
     yield
 
     # Shutdown
     logger.info("Shutting down service...")
     await agent.close()
+    await conversation_manager.close()
 
 
 app = FastAPI(lifespan=lifespan)
