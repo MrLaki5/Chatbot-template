@@ -116,10 +116,7 @@ on start, without anything having to be run inside the container.
     * [Lets Encrypt certificate generation](nginx/letsencrypt_cert_gen.sh) (also holds the contact email)
     * [Nginx configuration](nginx/nginx_letsencrypt.conf)
 * Point the domain's DNS record at the host and make sure ports 80 and 443 are reachable, otherwise the challenge cannot be answered
-* Start the stack with `PROD` set, either by adding `PROD=true` to `.env` or inline:
-```bash
-PROD=true docker compose up -d --build
-```
+* Start the stack with `PROD` set, by adding `PROD=true` in `.env` file.
 
 ## References
 - [AI SDK Data Stream Protocol](https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol#data-stream-protocol) - the wire format `/conversations/query` follows
