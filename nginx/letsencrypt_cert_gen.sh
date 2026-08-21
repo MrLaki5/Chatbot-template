@@ -1,17 +1,17 @@
-# Write pid of nginx to file
-touch /run/nginx.pid
-pidof nginx > /run/nginx.pid
-# Create root dir for acme challange
-mkdir -p /var/www/certbot/.well-known/acme-challenge/
-# Generate certificates
-certbot certonly --webroot -w /var/www/certbot/ -d example.com -m info@example.com --agree-tos -n
-# Change configuration on nginx
-cat /nginx_letsencrypt.conf > /nginx_no_letsencrypt.conf
-# Restart nginx
-/usr/local/nginx/sbin/nginx -s reload
-# Start cron certificate renewal (defined in init.sh on container creation)
-echo "service cron start" >> /run.sh
-service cron start
+#!/bin/bash
+# Obtains the Let's Encrypt certificate. Called by run.sh when PROD=true, before
+# nginx starts: --standalone means certbot answers the ACME challenge on port 80
+# itself, which is still free at that point. --keep-until-expiring makes this a
+# no-op once a certificate exists, so only the first start talks to Let's
+# Encrypt. Renewals are the cron job's, see init.sh.
+set -e
+
+# Replace example.com with the acquired domain, here and in nginx_letsencrypt.conf.
+DOMAIN=example.com
+EMAIL=info@example.com
+
+certbot certonly --standalone --keep-until-expiring \
+    -d "$DOMAIN" -m "$EMAIL" --agree-tos -n
 
 # list certificates -> certbot certificates
 # renew certs test (no changes) -> certbot renew --dry-run

@@ -108,12 +108,17 @@ docker exec cb_template_app python scripts/init_db.py
 ```
 
 ### 6. (In deployment) Set SSL certificate
+By default (`PROD=false`) nginx serves a self-signed certificate it generates on first
+start. In deployment, `PROD=true` makes it request a Let's Encrypt certificate instead,
+on start, without anything having to be run inside the container.
+
 * When domain has been acquired, replace the `example.com` domain inside the following files with the acquired domain:
-    * [Lets Encrypt certificate generation](nginx/letsencrypt_cert_gen.sh)
+    * [Lets Encrypt certificate generation](nginx/letsencrypt_cert_gen.sh) (also holds the contact email)
     * [Nginx configuration](nginx/nginx_letsencrypt.conf)
-* When instance has been deployed, run the following
+* Point the domain's DNS record at the host and make sure ports 80 and 443 are reachable, otherwise the challenge cannot be answered
+* Start the stack with `PROD` set, either by adding `PROD=true` to `.env` or inline:
 ```bash
-docker exec cb_template_nginx /bin/bash -c "./lets_enc.sh"
+PROD=true docker compose up -d --build
 ```
 
 ## References

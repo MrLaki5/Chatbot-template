@@ -20,9 +20,8 @@ RUN chmod +x run.sh
 # run server
 RUN /bin/bash -c "./entrypoint.sh"
 
-# Self-signed certs are NOT baked into the image. run.sh generates them at
-# startup into /certificates (bind-mounted from the host) if absent, so private
-# keys are never committed and survive rebuilds.
+# Self-signed certs are NOT baked into the image. run.sh generates them into
+# /certificates at startup if absent, so no private key is ever committed.
 
 # Copy configurations
 ADD ./nginx_no_letsencrypt.conf /
