@@ -9,7 +9,7 @@ from loguru import logger
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from .database import dispose_engine, get_session_factory, init_models
+from .database import dispose_engine, get_session_factory, run_migrations
 from .models import Conversation, Message
 
 TITLE_MAX_LENGTH = 50
@@ -23,12 +23,12 @@ class ConversationManager:
         self.initialized = False
 
     async def initialize(self):
-        """Open the connection pool and make sure the tables are there."""
+        """Open the connection pool and apply any pending migrations."""
         if self.initialized:
             return
 
         try:
-            await init_models()
+            await run_migrations()
             self.initialized = True
             logger.info("Connected to PostgreSQL")
         except Exception as e:

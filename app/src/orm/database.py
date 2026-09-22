@@ -1,9 +1,14 @@
 """Async engine and session factory for the conversation store."""
 
+from pathlib import Path
+
+from alembic import command
+from alembic.config import Config
 from config import settings
+from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
-from .models import Base
+ALEMBIC_INI = str(Path(__file__).resolve().parent.parent / "alembic.ini")
 
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker | None = None
@@ -26,14 +31,21 @@ def get_session_factory() -> async_sessionmaker:
     return _session_factory
 
 
-async def init_models() -> None:
-    """Create any missing tables.
+def _upgrade_to_head(connection: Connection) -> None:
+    """Apply every pending migration on the given connection."""
+    alembic_cfg = Config(ALEMBIC_INI)
+    alembic_cfg.attributes["connection"] = connection
+    command.upgrade(alembic_cfg, "head")
 
-    A no-op once the tables exist, which is what makes it safe on every startup.
-    Nothing here ever drops anything.
+
+async def run_migrations() -> None:
+    """Bring the schema up to the latest Alembic revision.
+
+    A no-op once the database is at head, which is what makes it safe on every startup.
+    Schema changes belong in a new revision under alembic/versions, not here.
     """
     async with get_engine().begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_upgrade_to_head)
 
 
 async def dispose_engine() -> None:
