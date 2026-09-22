@@ -7,3 +7,4 @@ loguru==0.7.3
 openai==2.54.0
 sqlalchemy[asyncio]==2.0.43
 asyncpg==0.30.0
+alembic==1.14.1
