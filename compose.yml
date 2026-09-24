@@ -1,6 +1,14 @@
+# Docker's json-file driver never rotates by default, so cap each container at 50 MB
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   db:
     container_name: cb_template_db
+    logging: *logging
     build: ./db
     restart: always
     expose:
@@ -18,6 +26,7 @@ services:
 
   app:
     container_name: cb_template_app
+    logging: *logging
     build: ./app
     restart: always
     expose:
@@ -30,6 +39,7 @@ services:
 
   nginx:
     container_name: cb_template_nginx
+    logging: *logging
     build: ./nginx
     depends_on:
      - app
