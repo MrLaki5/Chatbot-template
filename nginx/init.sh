@@ -1,9 +1,11 @@
+set -e
 export CC=gcc
 
-# get desired nginx version
-wget http://nginx.org/download/nginx-1.25.1.tar.gz
-tar xzvf nginx-1.25.1.tar.gz
-cd nginx-1.25.1
+# get desired nginx version (stable branch; check nginx.org/en/security_advisories.html when bumping)
+NGINX_VERSION=1.30.6
+wget https://nginx.org/download/nginx-$NGINX_VERSION.tar.gz
+tar xzvf nginx-$NGINX_VERSION.tar.gz
+cd nginx-$NGINX_VERSION
 
 # --with-stream + --with-stream_ssl_module: TLS termination for the RabbitMQ AMQP
 # port. AMQP is raw TCP (not HTTP), so it is proxied via the stream module, not http.
@@ -15,7 +17,7 @@ make install
 
 # check
 /usr/local/nginx/sbin/nginx -v
-# nginx version: nginx/1.25.1
+# nginx version: nginx/1.30.6
 
 # Create chron job that activates once per month to renew certificates. The
 # certificate is first issued with --standalone (see letsencrypt_cert_gen.sh), but
