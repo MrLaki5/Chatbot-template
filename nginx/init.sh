@@ -2,7 +2,7 @@ set -e
 export CC=gcc
 
 # get desired nginx version (stable branch; check nginx.org/en/security_advisories.html when bumping)
-NGINX_VERSION=1.30.6
+NGINX_VERSION=1.30.7
 wget https://nginx.org/download/nginx-$NGINX_VERSION.tar.gz
 tar xzvf nginx-$NGINX_VERSION.tar.gz
 cd nginx-$NGINX_VERSION
@@ -17,7 +17,7 @@ make install
 
 # check
 /usr/local/nginx/sbin/nginx -v
-# nginx version: nginx/1.30.6
+# nginx version: nginx/1.30.7
 
 # Create chron job that activates once per month to renew certificates. The
 # certificate is first issued with --standalone (see letsencrypt_cert_gen.sh), but
